@@ -25,7 +25,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
-#include "log.h"
+#include "app_main.h"
 
 /* USER CODE END Includes */
 
@@ -68,7 +68,7 @@ void SystemClock_Config(void);
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-
+  app_main.on_init();
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -92,22 +92,20 @@ int main(void)
   MX_DMA_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
-
-  //UART
-  // MY_COM_RX_ENABLE(); //使能com(uart2)接收数据
-  my_log_rx_enable(); //使能log接收数据
-  LOGI("STM32F407ZGT6 flash\n");
-
+  app_main.on_begin();
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+  app_main.on_start();
   while (1)
   {
+    if (app_main.on_loop())break;
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
   }
+  app_main.on_end();
   /* USER CODE END 3 */
 }
 

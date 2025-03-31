@@ -30,7 +30,6 @@ DMA_HandleTypeDef hdma_usart1_tx;
 
 /* USART1 init function */
 
-
 void MX_USART1_UART_Init(void)
 {
 
@@ -159,15 +158,5 @@ void HAL_UART_MspDeInit(UART_HandleTypeDef* uartHandle)
 }
 
 /* USER CODE BEGIN 1 */
-
-extern void log_rx_callback(uint16_t size);
-
-void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef* huart, uint16_t Size)
-{
-  if (huart == &huart1)
-  {
-    log_rx_callback(Size);
-  }
-}
 
 /* USER CODE END 1 */
