@@ -15,7 +15,7 @@ typedef struct
     void (*on_start)(void);
     uint8_t (*on_loop)(void);
     void (*on_end)(void);
-    void (*on_uart_rx)(uint8_t uart_num, uint8_t* data, uint16_t size);
+    void (*on_uart_rx)(const uint8_t uart_num,const uint8_t* data, uint16_t size);
 } app_main_t;
 
 extern app_main_t app_main;

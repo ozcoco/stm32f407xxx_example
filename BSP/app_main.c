@@ -16,7 +16,7 @@ static void on_begin(void);
 static void on_start(void);
 static uint8_t on_loop(void);
 static void on_end(void);
-static void on_uart_rx(uint8_t uart_num, const uint8_t* data, uint16_t size);
+static void on_uart_rx(const uint8_t uart_num, const uint8_t* data, uint16_t size);
 
 /** 实例化 **/
 app_main_t app_main = {
