@@ -1,26 +1,26 @@
 # 该文件夹存放板载外设功能代码
 
 # 板载功能是否启用配置
-option(USE_BSP "是否启用板载功能" ON)
-option(USE_BSP_LED "是否启用LED模块" ON)
-option(USE_BSP_FLASH "是否启用FLASH模块" ON)
+option(USE_USER "是否启用板载功能" ON)
+option(USE_USER_LED "是否启用LED模块" ON)
+option(USE_USER_FLASH "是否启用FLASH模块" ON)
 
-if (USE_BSP)
+if (USE_USER)
     # 添加include目录
-    include_directories(BSP)
+    include_directories(User)
     # 启用LED模块
-    if (USE_BSP_LED)
+    if (USE_USER_LED)
         message(STATUS "启用LED模块")
-        add_compile_definitions(USE_BSP_LED)
+        add_compile_definitions(USE_USER_LED)
     endif ()
     # 启用FLASH模块
-    if (USE_BSP_FLASH)
+    if (USE_USER_FLASH)
         message(STATUS "启用FLASH模块")
-        add_compile_definitions(USE_BSP_FLASH)
+        add_compile_definitions(USE_USER_FLASH)
     endif ()
     # 添加编译源文件
-    file(GLOB_RECURSE BSP_SOURCES "BSP/*.*")
-    list(APPEND SOURCES ${BSP_SOURCES})
+    file(GLOB_RECURSE USER_SOURCES "User/*.*")
+    list(APPEND SOURCES ${USER_SOURCES})
 else ()
     message(STATUS "禁用板载功能")
 endif ()

@@ -2,7 +2,7 @@
 // Created by ozcom on 2025/4/2.
 //
 
-#ifdef USE_BSP_FLASH
+#ifdef USE_USER_FLASH
 
 #include "stm32_flash.h"
 #include "stm32f4xx_hal.h"

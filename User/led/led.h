@@ -3,7 +3,7 @@
 //
 #pragma once
 
-#ifdef USE_BSP_LED
+#ifdef USE_USER_LED
 
 #ifndef LED_H
 #define LED_H
@@ -29,4 +29,4 @@
 // }
 
 #endif //LED_H
-#endif //USE_BSP_LED
+#endif //USE_USER_LED
