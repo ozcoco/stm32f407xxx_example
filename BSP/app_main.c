@@ -5,7 +5,7 @@
 #include "app_main.h"
 #include "log/log.h"
 #include "led/led_test.h"
-#include "delay.h"
+#include "delay/delay.h"
 #include "stdlib.h"
 
 #define UART_NUM_LOG 1
