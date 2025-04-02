@@ -44,6 +44,7 @@ static void on_begin(void)
 static void on_start(void)
 {
     LOGI("on_start\n");
+    led_init();
 }
 
 
