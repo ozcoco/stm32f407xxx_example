@@ -7,6 +7,7 @@
 #include "led/led_test.h"
 #include "delay/delay.h"
 #include "stdlib.h"
+#include "sensor/light_sensor.h"
 
 #define UART_NUM_LOG 1
 
@@ -50,6 +51,20 @@ static void on_start(void)
 
 static uint8_t on_loop(void)
 {
+    // 读取光照强度
+    const int32_t light = light_sensor_get_value();
+    LOGI("light=%d\r\n", light);
+    // 控制LED
+    if (light < 0)
+    {
+        on_led_cmd(CMD_LED_0_ON);
+    }
+    else
+    {
+        on_led_cmd(CMD_LED_0_OFF);
+    }
+    // 延时1s
+    delay_ms(1000);
     return 0;
 }
 

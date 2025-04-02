@@ -8,11 +8,6 @@
 #include "log/log.h"
 #include "flash/stm32_flash.h"
 
-#define CMD_LED_0_ON 0x11
-#define CMD_LED_0_OFF 0x10
-#define CMD_LED_1_ON 0x21
-#define CMD_LED_1_OFF 0x20
-
 #define LED_STATE_SAVE_FLASH_ADDR (STM32_FLASH_SECTOR_3_ADDR+4)
 
 typedef struct
