@@ -55,7 +55,7 @@ add_definitions(-DDEBUG -DSTM32F407xx -DUSE_HAL_DRIVER)
 
 file(GLOB_RECURSE SOURCES "Core/*.*" "Drivers/*.*")
 # BSP配置文件
-include(bsp_config.cmake)
+include(User_config.cmake)
 message(STATUS "--->SOURCES: ${SOURCES}")
 
 set(LINKER_SCRIPT ${CMAKE_SOURCE_DIR}/STM32F407ZGTX_FLASH.ld)
