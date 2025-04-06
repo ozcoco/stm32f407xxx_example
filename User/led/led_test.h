@@ -2,6 +2,7 @@
 // Created by ozcom on 2025/3/31.
 //
 
+
 #ifndef LED_TEST_H
 #define LED_TEST_H
 
@@ -12,8 +13,19 @@
 #define CMD_LED_1_ON 0x21
 #define CMD_LED_1_OFF 0x20
 
+#ifdef USE_USER_LED
+
 void led_init(void);
 
 void on_led_cmd(int32_t data);
+
+#else
+
+inline void led_init(void){}
+
+inline void on_led_cmd(int32_t data){}
+
+
+#endif
 
 #endif //LED_TEST_H

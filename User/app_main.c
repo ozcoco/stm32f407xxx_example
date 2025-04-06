@@ -38,7 +38,7 @@ static void on_begin(void)
 {
     // log初始化
     LOG_RX_ENABLE();
-    LOGI("STM32F407ZGT6 flash\n");
+    LOGI("STM32F407VET6 example\n");
     LOGI("on_begin\n");
 }
 
@@ -51,6 +51,8 @@ static void on_start(void)
 
 static uint8_t on_loop(void)
 {
+#ifdef USE_USER_LIGHT_SENSOR
+
     // 读取光照强度
     const int32_t light = light_sensor_get_value();
     LOGI("light=%d\r\n", light);
@@ -65,6 +67,9 @@ static uint8_t on_loop(void)
     }
     // 延时1s
     delay_ms(1000);
+
+#endif
+
     return 0;
 }
 

@@ -22,6 +22,14 @@
 #define STM32_FLASH_SECTOR_10_ADDR    ((uint32_t)0x080C0000) //128 Kbytes
 #define STM32_FLASH_SECTOR_11_ADDR    ((uint32_t)0x080E0000) //128 Kbytes
 
+#ifdef USE_USER_FLASH
+
 uint8_t STM32_FLASH_WRITE(const uint32_t addr, const void *data, const uint32_t size);
+
+#else
+
+inline uint8_t STM32_FLASH_WRITE(const uint32_t addr, const void *data, const uint32_t size){}
+
+#endif
 
 #endif //FLASH_H

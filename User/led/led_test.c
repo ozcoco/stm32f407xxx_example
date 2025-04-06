@@ -2,6 +2,8 @@
 // Created by ozcom on 2025/3/31.
 //
 
+#ifdef USE_USER_LED
+
 #include "led_test.h"
 #include "string.h"
 #include "led.h"
@@ -62,3 +64,5 @@ void on_led_cmd(const int32_t cmd)
         STM32_FLASH_WRITE(LED_STATE_SAVE_FLASH_ADDR, &led_state, sizeof(led_state_t));
     }
 }
+
+#endif

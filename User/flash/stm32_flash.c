@@ -55,13 +55,4 @@ uint8_t STM32_FLASH_WRITE(const uint32_t addr, const void* data, const uint32_t 
     return 0;
 }
 
-#else
-
-#include "stm32_flash.h"
-
-uint8_t FLASH_WRITE(const uint32_t addr, const void* data, const uint32_t size)
-{
-    return 0;
-}
-
 #endif

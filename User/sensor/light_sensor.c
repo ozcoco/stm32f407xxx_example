@@ -16,13 +16,4 @@ int32_t light_sensor_get_value(void)
     return 100 - value / 30;
 }
 
-#else
-
-#include "light_sensor.h"
-
-int32_t light_sensor_get_value(void)
-{
-    return 0;
-}
-
 #endif

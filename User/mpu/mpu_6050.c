@@ -6,10 +6,6 @@
 
 #include "mpu_6050.h"
 
-
-#else
-
-#include "mpu_6050.h"
-
+uint8_t mpu_6050_init(void){}
 
 #endif
