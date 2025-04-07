@@ -4,15 +4,18 @@
 
 #ifndef MPU_6050_H
 #define MPU_6050_H
-#include <stdint.h>
 
 #ifdef USE_USER_MPU_6050
 
-uint8_t mpu_6050_init(void);
+void mpu_6050_init(void);
+
+void mpu_6050_print(void);
 
 #else
 
-inline uint8_t mpu_6050_init(void){ return 0; }
+inline void mpu_6050_init(void){}
+
+inline void mpu_6050_print(void){}
 
 #endif
 
