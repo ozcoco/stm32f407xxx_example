@@ -8,8 +8,16 @@
 #include "delay/delay.h"
 #include "stdlib.h"
 #include "sensor/light_sensor.h"
+#include "mpu/mpu_6050.h"
+#include "at24c02/at24c02.h"
 
+
+/** 串口编号 **/
 #define UART_NUM_LOG 1
+
+/** I2C编号 **/
+#define I2C_NUM_MEM 1
+#define I2C_NUM_SENSOR 2
 
 /** 声明 **/
 static void on_init(void);
@@ -46,16 +54,22 @@ static void on_start(void)
 {
     LOGI("on_start\n");
     led_init();
+#ifdef USE_USER_MPU_6050
+    mpu_6050_init();
+#endif
+
+#ifdef USE_USER_AT24C02
+    at24c02_init(); // 初始化AT24C02
+#endif
 }
 
 
 static uint8_t on_loop(void)
 {
 #ifdef USE_USER_LIGHT_SENSOR
-
     // 读取光照强度
     const int32_t light = light_sensor_get_value();
-    LOGI("light=%d\r\n", light);
+    // LOGI("light=%d\r\n", light);
     // 控制LED
     if (light < 0)
     {
@@ -66,7 +80,12 @@ static uint8_t on_loop(void)
         on_led_cmd(CMD_LED_0_OFF);
     }
     // 延时1s
-    delay_ms(1000);
+    // delay_ms(3000);
+#endif
+
+#ifdef USE_USER_MPU_6050
+
+    mpu_6050_print();
 
 #endif
 
@@ -77,6 +96,11 @@ static void on_end(void)
 {
     LOGI("on_end\n");
 }
+
+
+/*************************************************************
+ * 以下为UART中断回调函数
+ **************************************************************/
 
 /**
  * @brief 串口接收回调函数
@@ -92,4 +116,47 @@ static void on_uart_rx(const uint8_t uart_num, const uint8_t* data, uint16_t siz
         const int32_t cmd = strtol((const char*)data, NULL, 16);
         on_led_cmd(cmd);
     }
+}
+
+
+/*************************************************************
+ * 以下为I2C中断回调函数
+ **************************************************************/
+
+/**
+ * @brief I2C接收回调函数
+ *
+ * @param uart_num I2C编号
+ */
+void i2c_rx_callback(uint8_t uart_num)
+{
+
+}
+
+/**
+ * @brief I2C发送回调函数
+ *
+ * @param uart_num I2C编号
+ */
+void i2c_tx_callback(uint8_t uart_num)
+{
+
+}
+
+/**
+ * @brief I2C错误回调函数
+ *
+ * @param uart_num I2C编号
+ */
+void i2c_err_callback(uint8_t uart_num)
+{
+}
+
+/**
+ * @brief I2C中止回调函数
+ *
+ * @param uart_num I2C编号
+ */
+void i2c_abort_callback(uint8_t uart_num)
+{
 }
