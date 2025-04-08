@@ -9,11 +9,25 @@
 
 #ifdef USE_USER_AT24C02
 
+// 事件
+#define US_AT24C02_EVENT_RX_COMPLETE 0b00000001U
+#define US_AT24C02_EVENT_TX_COMPLETE 0b00000010U
+#define US_AT24C02_EVENT_ERROR 0b00000100U
+
+
 void at24c02_init(void);
+
+void at24c02_print(void);
+
+void on_at24c02_event(const uint8_t event);
 
 #else
 
 inline void at24c02_init(void){}
+
+inline void at24c02_print(void){}
+
+inline void on_at24c02_event(uint8_t event){}
 
 #endif
 

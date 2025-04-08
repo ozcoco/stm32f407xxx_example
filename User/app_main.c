@@ -69,7 +69,7 @@ static uint8_t on_loop(void)
 #ifdef USE_USER_LIGHT_SENSOR
     // 读取光照强度
     const int32_t light = light_sensor_get_value();
-    // LOGI("light=%d\r\n", light);
+    LOGI("light=%d\r\n", light);
     // 控制LED
     if (light < 0)
     {
@@ -84,9 +84,11 @@ static uint8_t on_loop(void)
 #endif
 
 #ifdef USE_USER_MPU_6050
-
     mpu_6050_print();
+#endif
 
+#ifdef USE_USER_AT24C02
+    at24c02_print();
 #endif
 
     return 0;
@@ -128,9 +130,12 @@ static void on_uart_rx(const uint8_t uart_num, const uint8_t* data, uint16_t siz
  *
  * @param uart_num I2C编号
  */
-void i2c_rx_callback(uint8_t uart_num)
+void i2c_rx_callback(const uint8_t uart_num)
 {
-
+    if (uart_num == I2C_NUM_MEM)
+    {
+        on_at24c02_event(US_AT24C02_EVENT_RX_COMPLETE);
+    }
 }
 
 /**
@@ -138,9 +143,12 @@ void i2c_rx_callback(uint8_t uart_num)
  *
  * @param uart_num I2C编号
  */
-void i2c_tx_callback(uint8_t uart_num)
+void i2c_tx_callback(const uint8_t uart_num)
 {
-
+    if (uart_num == I2C_NUM_MEM)
+    {
+        on_at24c02_event(US_AT24C02_EVENT_TX_COMPLETE);
+    }
 }
 
 /**
@@ -148,8 +156,12 @@ void i2c_tx_callback(uint8_t uart_num)
  *
  * @param uart_num I2C编号
  */
-void i2c_err_callback(uint8_t uart_num)
+void i2c_err_callback(const uint8_t uart_num)
 {
+    if (uart_num == I2C_NUM_MEM)
+    {
+        on_at24c02_event(US_AT24C02_EVENT_ERROR);
+    }
 }
 
 /**
@@ -157,6 +169,6 @@ void i2c_err_callback(uint8_t uart_num)
  *
  * @param uart_num I2C编号
  */
-void i2c_abort_callback(uint8_t uart_num)
+void i2c_abort_callback(const uint8_t uart_num)
 {
 }
