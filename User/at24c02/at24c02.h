@@ -10,10 +10,14 @@
 #ifdef USE_USER_AT24C02
 
 // 事件
+#define US_AT24C02_EVENT_NONE 0b00000000U
 #define US_AT24C02_EVENT_RX_COMPLETE 0b00000001U
 #define US_AT24C02_EVENT_TX_COMPLETE 0b00000010U
 #define US_AT24C02_EVENT_ERROR 0b00000100U
 
+// DMA通道
+extern DMA_HandleTypeDef hdma_i2c1_rx;
+extern DMA_HandleTypeDef hdma_i2c1_tx;
 
 void at24c02_init(void);
 
