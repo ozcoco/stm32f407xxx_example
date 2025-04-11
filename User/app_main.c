@@ -10,7 +10,7 @@
 #include "sensor/light_sensor.h"
 #include "mpu/mpu_6050.h"
 #include "at24c02/at24c02.h"
-
+#include "lcd/lcd.h"
 
 /** 串口编号 **/
 #define UART_NUM_LOG 1
@@ -60,6 +60,10 @@ static void on_start(void)
 
 #ifdef USE_USER_AT24C02
     at24c02_init(); // 初始化AT24C02
+#endif
+
+#ifdef USE_USER_LCD
+    lcd_init();
 #endif
 }
 
@@ -134,7 +138,9 @@ void i2c_rx_callback(const uint8_t uart_num)
 {
     if (uart_num == I2C_NUM_MEM)
     {
+#ifdef USE_USER_AT24C02
         on_at24c02_event(US_AT24C02_EVENT_RX_COMPLETE);
+#endif
     }
 }
 
@@ -147,7 +153,9 @@ void i2c_tx_callback(const uint8_t uart_num)
 {
     if (uart_num == I2C_NUM_MEM)
     {
+#ifdef USE_USER_AT24C02
         on_at24c02_event(US_AT24C02_EVENT_TX_COMPLETE);
+#endif
     }
 }
 
@@ -160,7 +168,9 @@ void i2c_err_callback(const uint8_t uart_num)
 {
     if (uart_num == I2C_NUM_MEM)
     {
+#ifdef USE_USER_AT24C02
         on_at24c02_event(US_AT24C02_EVENT_ERROR);
+#endif
     }
 }
 
