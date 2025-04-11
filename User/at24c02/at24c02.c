@@ -171,7 +171,6 @@ void at24c02_init(void)
 
 void at24c02_print(void)
 {
-    LOGI("at24c02_print \n");
 #if US_EXAMPLE_I2C_DMA_ON == 1
     {
         LOGI("\n at24c02_print event=%d \n", at24c02.event);
