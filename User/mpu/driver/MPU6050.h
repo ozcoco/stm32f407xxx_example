@@ -1,5 +1,9 @@
 #pragma once
 
+#define MPU6050_ON 0
+
+#if MPU6050_ON==1
+
 #ifndef MPU6050_H
 #define MPU6050_H
 
@@ -167,5 +171,7 @@ void writeByte(uint8_t address, uint8_t subAddress, uint8_t data);
 uint8_t readByte(uint8_t address, uint8_t subAddress);
 void readBytes(uint8_t address, uint8_t subAddress, uint8_t count, uint8_t* dest);
 
+
+#endif
 
 #endif

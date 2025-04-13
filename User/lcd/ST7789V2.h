@@ -147,37 +147,6 @@
 
 #endif
 
-/**
- *Color of pen
- *If you want to use another color, you can choose one in RGB565 format.
- * 画笔颜色定义
- * 如果需要使用其他颜色，可以选择 RGB565 格式的颜色值
- */
-
-#define WHITE       0xFFFF
-#define BLACK       0x0000
-#define BLUE        0x001F
-#define RED         0xF800
-#define MAGENTA     0xF81F
-#define GREEN       0x07E0
-#define CYAN        0x7FFF
-#define YELLOW      0xFFE0
-#define GRAY        0X8430
-#define BRED        0XF81F
-#define GRED        0XFFE0
-#define GBLUE       0X07FF
-#define BROWN       0XBC40
-#define BRRED       0XFC07
-#define DARKBLUE    0X01CF
-#define LIGHTBLUE   0X7D7C
-#define GRAYBLUE    0X5458
-
-#define LIGHTGREEN  0X841F
-#define LGRAY       0XC618
-#define LGRAYBLUE   0XA651
-#define LBBLUE      0X2B12
-// 定义各种颜色的 RGB565 格式值
-
 /* Control Registers and constant codes */
 // 控制寄存器和常量代码定义
 #define ST7789_NOP     0x00

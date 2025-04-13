@@ -5,285 +5,671 @@
 #ifdef USE_USER_MPU_6050
 
 #include "mpu_6050.h"
-#include "driver/MPU6050.h"
-#include "log/log.h"
-#include <stdbool.h>
-#include <math.h>
 
 // #define MPU_6050_ADDR 0x68
 #define MPU_6050_ADDR 0xD0
 
-#define micros() HAL_GetTick()
-#define millis() HAL_GetTick()
+static mpu6050_handle_t gs_handle; /**< mpu6050 handle */
 
-#define PI 3.14159265
+/**
+ * @brief     basic example init
+ * @param[in] addr_pin iic device address
+ * @return    status code
+ *            - 0 success
+ *            - 1 init failed
+ * @note      none
+ */
+static uint8_t mpu6050_basic_init(mpu6050_address_t addr_pin);
 
-float aRes, gRes; // scale resolutions per LSB for the sensors
-// Pin definitions
-int intPin = 12; // These can be changed, 2 and 3 are the Arduinos ext int pins
-#define blinkPin 13  // Blink LED on Teensy or Pro Mini when updating
-bool blinkOn = false;
-int16_t accelCount[3]; // Stores the 16-bit signed accelerometer sensor output
-float ax, ay, az; // Stores the real accel value in g's
-int16_t gyroCount[3]; // Stores the 16-bit signed gyro sensor output
-float gyrox, gyroy, gyroz; // Stores the real gyro value in degrees per seconds
-float gyroBias[3] = {0, 0, 0}, accelBias[3] = {0, 0, 0}; // Bias corrections for gyro and accelerometer
-int16_t tempCount; // Stores the real internal chip temperature in degrees Celsius
-float temperature;
-float SelfTest[6];
-float q[4] = {1.0f, 0.0f, 0.0f, 0.0f}; // vector to hold quaternion
-uint32_t delt_t = 0; // used to control display output rate
-uint32_t count = 0; // used to control display output rate
-float pitch, yaw, roll;
-// parameters for 6 DoF sensor fusion calculations
-const float GyroMeasError = PI * (40.0f / 180.0f);
-// gyroscope measurement error in rads/s (start at 60 deg/s), then reduce after ~10 s to 3
-const float beta = sqrtf(3.0f / 4.0f) * GyroMeasError; // compute beta
-float GyroMeasDrift = PI * (2.0f / 180.0f); // gyroscope measurement drift in rad/s/s (start at 0.0 deg/s/s)
-// float zeta = sqrtf(3.0f / 4.0f) * GyroMeasDrift;
-float zeta = 0.0f;
-// compute zeta, the other free parameter in the Madgwick scheme usually set to a small or zero value
-float deltat = 0.0f; // integration interval for both filter schemes
-uint32_t lastUpdate = 0, firstUpdate = 0; // used to calculate integration interval
-uint32_t Now = 0; // used to calculate integration interval
 
+/**
+ * @brief  basic example deinit
+ * @return status code
+ *         - 0 success
+ *         - 1 deinit failed
+ * @note   none
+ */
+static uint8_t mpu6050_basic_deinit(void);
+
+/**
+ * @brief      basic example read
+ * @param[out] *g pointer to a converted data buffer
+ * @param[out] *dps pointer to a converted data buffer
+ * @return     status code
+ *             - 0 success
+ *             - 1 read failed
+ * @note       none
+ */
+static uint8_t mpu6050_basic_read(float g[3], float dps[3]);
+
+/**
+ * @brief      basic example read temperature
+ * @param[out] *degrees pointer to a converted data buffer
+ * @return     status code
+ *             - 0 success
+ *             - 1 read temperature failed
+ * @note       none
+ */
+static uint8_t mpu6050_basic_read_temperature(float* degrees);
+
+float g[3];
+float dps[3];
+float degrees;
 
 void mpu_6050_init(void)
 {
-    zeta = sqrtf(3.0f / 4.0f) * GyroMeasDrift;
-    // Read the WHO_AM_I register, this is a good test of communication
-    uint8_t c = readByte(MPU6050_ADDRESS, WHO_AM_I_MPU6050); // Read WHO_AM_I register for MPU-6050
-    LOGI("I AM %x\n", c);
-    LOGI(" I Should Be %x\n", 0x68);
-
-    if (c == 0x68) // WHO_AM_I should always be 0x68
-    {
-        LOGI("MPU6050 is online...\n");
-
-        MPU6050SelfTest(SelfTest); // Start by performing self test and reporting values
-        //    Serial.print("x-axis self test: acceleration trim within : "); Serial.print(SelfTest[0],1); LOGI("% of factory value");
-        //    Serial.print("y-axis self test: acceleration trim within : "); Serial.print(SelfTest[1],1); LOGI("% of factory value");
-        //    Serial.print("z-axis self test: acceleration trim within : "); Serial.print(SelfTest[2],1); LOGI("% of factory value");
-        //    Serial.print("x-axis self test: gyration trim within : "); Serial.print(SelfTest[3],1); LOGI("% of factory value");
-        //    Serial.print("y-axis self test: gyration trim within : "); Serial.print(SelfTest[4],1); LOGI("% of factory value");
-        //    Serial.print("z-axis self test: gyration trim within : "); Serial.print(SelfTest[5],1); LOGI("% of factory value");
-
-        if (SelfTest[0] < 1.0f && SelfTest[1] < 1.0f && SelfTest[2] < 1.0f && SelfTest[3] < 1.0f && SelfTest[4] < 1.0f
-            && SelfTest[5] < 1.0f)
-        {
-            LOGI("Pass Selftest!\n");
-
-            calibrateMPU6050(gyroBias, accelBias); // Calibrate gyro and accelerometers, load biases in bias registers
-            LOGI("MPU6050 bias\n");
-            LOGI(" x\t  y\t  z  \n");
-            LOGI("%d \t", (int)(1000 * accelBias[0]));
-            LOGI("%d \t", (int)(1000 * accelBias[1]));
-            LOGI("%d mg\n", (int)(1000 * accelBias[2]));
-            LOGI("%f %d \t", gyroBias[0], 1);
-            LOGI("%f %d \t", gyroBias[1], 1);
-            LOGI("%f %d o/s\n", gyroBias[2], 1);
-            initMPU6050();
-            LOGI("MPU6050 initialized for active data mode....\n");
-            // Initialize device for active mode read of acclerometer, gyroscope, and temperature
-        }
-    }
+    /* init */
+    const uint8_t res = mpu6050_basic_init(MPU6050_ADDRESS_AD0_LOW);
+    LOGI("mpu6050 init: %d.\n", res);
 }
 
-
-// Implementation of Sebastian Madgwick's "...efficient orientation filter for... inertial/magnetic sensor arrays"
-// (see http://www.x-io.co.uk/category/open-source/ for examples and more details)
-// which fuses acceleration and rotation rate to produce a quaternion-based estimate of relative
-// device orientation -- which can be converted to yaw, pitch, and roll. Useful for stabilizing quadcopters, etc.
-// The performance of the orientation filter is at least as good as conventional Kalman-based filtering algorithms
-// but is much less computationally intensive---it can be performed on a 3.3 V Pro Mini operating at 8 MHz!
-void MadgwickQuaternionUpdate(float ax, float ay, float az, float gyrox, float gyroy, float gyroz)
+void mpu_6050_deinit(void)
 {
-    float q1 = q[0], q2 = q[1], q3 = q[2], q4 = q[3]; // short name local variable for readability
-    float norm; // vector norm
-    float f1, f2, f3; // objetive funcyion elements
-    float J_11or24, J_12or23, J_13or22, J_14or21, J_32, J_33; // objective function Jacobian elements
-    float qDot1, qDot2, qDot3, qDot4;
-    float hatDot1, hatDot2, hatDot3, hatDot4;
-    float gerrx, gerry, gerrz, gbiasx, gbiasy, gbiasz; // gyro bias error
-
-    // Auxiliary variables to avoid repeated arithmetic
-    float _halfq1 = 0.5f * q1;
-    float _halfq2 = 0.5f * q2;
-    float _halfq3 = 0.5f * q3;
-    float _halfq4 = 0.5f * q4;
-    float _2q1 = 2.0f * q1;
-    float _2q2 = 2.0f * q2;
-    float _2q3 = 2.0f * q3;
-    float _2q4 = 2.0f * q4;
-    float _2q1q3 = 2.0f * q1 * q3;
-    float _2q3q4 = 2.0f * q3 * q4;
-
-    // Normalise accelerometer measurement
-    norm = sqrt(ax * ax + ay * ay + az * az);
-    if (norm == 0.0f) return; // handle NaN
-    norm = 1.0f / norm;
-    ax *= norm;
-    ay *= norm;
-    az *= norm;
-
-    // Compute the objective function and Jacobian
-    f1 = _2q2 * q4 - _2q1 * q3 - ax;
-    f2 = _2q1 * q2 + _2q3 * q4 - ay;
-    f3 = 1.0f - _2q2 * q2 - _2q3 * q3 - az;
-    J_11or24 = _2q3;
-    J_12or23 = _2q4;
-    J_13or22 = _2q1;
-    J_14or21 = _2q2;
-    J_32 = 2.0f * J_14or21;
-    J_33 = 2.0f * J_11or24;
-
-    // Compute the gradient (matrix multiplication)
-    hatDot1 = J_14or21 * f2 - J_11or24 * f1;
-    hatDot2 = J_12or23 * f1 + J_13or22 * f2 - J_32 * f3;
-    hatDot3 = J_12or23 * f2 - J_33 * f3 - J_13or22 * f1;
-    hatDot4 = J_14or21 * f1 + J_11or24 * f2;
-
-    // Normalize the gradient
-    norm = sqrt(hatDot1 * hatDot1 + hatDot2 * hatDot2 + hatDot3 * hatDot3 + hatDot4 * hatDot4);
-    hatDot1 /= norm;
-    hatDot2 /= norm;
-    hatDot3 /= norm;
-    hatDot4 /= norm;
-
-    // Compute estimated gyroscope biases
-    gerrx = _2q1 * hatDot2 - _2q2 * hatDot1 - _2q3 * hatDot4 + _2q4 * hatDot3;
-    gerry = _2q1 * hatDot3 + _2q2 * hatDot4 - _2q3 * hatDot1 - _2q4 * hatDot2;
-    gerrz = _2q1 * hatDot4 - _2q2 * hatDot3 + _2q3 * hatDot2 - _2q4 * hatDot1;
-
-    // Compute and remove gyroscope biases
-    gbiasx += gerrx * deltat * zeta;
-    gbiasy += gerry * deltat * zeta;
-    gbiasz += gerrz * deltat * zeta;
-    gyrox -= gbiasx;
-    gyroy -= gbiasy;
-    gyroz -= gbiasz;
-
-    // Compute the quaternion derivative
-    qDot1 = -_halfq2 * gyrox - _halfq3 * gyroy - _halfq4 * gyroz;
-    qDot2 = _halfq1 * gyrox + _halfq3 * gyroz - _halfq4 * gyroy;
-    qDot3 = _halfq1 * gyroy - _halfq2 * gyroz + _halfq4 * gyrox;
-    qDot4 = _halfq1 * gyroz + _halfq2 * gyroy - _halfq3 * gyrox;
-
-    // Compute then integrate estimated quaternion derivative
-    q1 += (qDot1 - (beta * hatDot1)) * deltat;
-    q2 += (qDot2 - (beta * hatDot2)) * deltat;
-    q3 += (qDot3 - (beta * hatDot3)) * deltat;
-    q4 += (qDot4 - (beta * hatDot4)) * deltat;
-
-    // Normalize the quaternion
-    norm = sqrt(q1 * q1 + q2 * q2 + q3 * q3 + q4 * q4); // normalise quaternion
-    norm = 1.0f / norm;
-    q[0] = q1 * norm;
-    q[1] = q2 * norm;
-    q[2] = q3 * norm;
-    q[3] = q4 * norm;
+    mpu6050_basic_deinit();
 }
-
 
 void mpu_6050_print(void)
 {
-    // If data ready bit set, all data registers have new data
-    if (readByte(MPU6050_ADDRESS, INT_STATUS) & 0x01)
+    /* read */
+    if (mpu6050_basic_read(g, dps) != 0)
     {
-        // check if data ready interrupt
-        readAccelData(accelCount); // Read the x/y/z adc values
-        aRes = getAres();
-
-        // Now we'll calculate the accleration value into actual g's
-        ax = (float)accelCount[0] * aRes; // get actual g value, this depends on scale being set
-        ay = (float)accelCount[1] * aRes;
-        az = (float)accelCount[2] * aRes;
-
-        readGyroData(gyroCount); // Read the x/y/z adc values
-        gRes = getGres();
-
-        // Calculate the gyro value into actual degrees per second
-        gyrox = (float)gyroCount[0] * gRes; // get actual gyro value, this depends on scale being set
-        gyroy = (float)gyroCount[1] * gRes;
-        gyroz = (float)gyroCount[2] * gRes;
-
-        tempCount = readTempData(); // Read the x/y/z adc values
-        temperature = ((float)tempCount) / 340. + 36.53; // Temperature in degrees Centigrade
+        LOGE("mpu_6050_print: mpu6050_basic_read failed.\n");
+        mpu6050_basic_deinit();
     }
 
-    Now = micros();
-    deltat = ((Now - lastUpdate) / 1000000.0f); // set integration time by time elapsed since last filter update
-    lastUpdate = Now;
-    //    if(lastUpdate - firstUpdate > 10000000uL) {
-    //      beta = 0.041; // decrease filter gain after stabilized
-    //      zeta = 0.015; // increase gyro bias drift gain after stabilized
-    //    }
-    // Pass gyro rate as rad/s
-    MadgwickQuaternionUpdate(ax, ay, az, gyrox * PI / 180.0f, gyroy * PI / 180.0f, gyroz * PI / 180.0f);
-
-    // Serial print and/or display at 0.5 s rate independent of data rates
-    delt_t = millis() - count;
-    if (delt_t > 500)
+    if (mpu6050_basic_read_temperature(&degrees) != 0)
     {
-        // update LCD once per half-second independent of read rate
-        // digitalWrite(blinkPin, blinkOn);
-        /*
-            Serial.print("ax = "); Serial.print((int)1000*ax);
-            Serial.print(" ay = "); Serial.print((int)1000*ay);
-            Serial.print(" az = "); Serial.print((int)1000*az); Serial.println(" mg");
-
-            Serial.print("gyrox = "); Serial.print( gyrox, 1);
-            Serial.print(" gyroy = "); Serial.print( gyroy, 1);
-            Serial.print(" gyroz = "); Serial.print( gyroz, 1); Serial.println(" deg/s");
-
-            Serial.print("q0 = "); Serial.print(q[0]);
-            Serial.print(" qx = "); Serial.print(q[1]);
-            Serial.print(" qy = "); Serial.print(q[2]);
-            Serial.print(" qz = "); Serial.println(q[3]);
-        */
-        // Define output variables from updated quaternion---these are Tait-Bryan angles, commonly used in aircraft orientation.
-        // In this coordinate system, the positive z-axis is down toward Earth.
-        // Yaw is the angle between Sensor x-axis and Earth magnetic North (or true North if corrected for local declination, looking down on the sensor positive yaw is counterclockwise.
-        // Pitch is angle between sensor x-axis and Earth ground plane, toward the Earth is positive, up toward the sky is negative.
-        // Roll is angle between sensor y-axis and Earth ground plane, y-axis up is positive roll.
-        // These arise from the definition of the homogeneous rotation matrix constructed from quaternions.
-        // Tait-Bryan angles as well as Euler angles are non-commutative; that is, the get the correct orientation the rotations must be
-        // applied in the correct order which for this configuration is yaw, pitch, and then roll.
-        // For more see http://en.wikipedia.org/wiki/Conversion_between_quaternions_and_Euler_angles which has additional links.
-        yaw = atan2(2.0f * (q[1] * q[2] + q[0] * q[3]), q[0] * q[0] + q[1] * q[1] - q[2] * q[2] - q[3] * q[3]);
-        pitch = -asin(2.0f * (q[1] * q[3] - q[0] * q[2]));
-        roll = atan2(2.0f * (q[0] * q[1] + q[2] * q[3]), q[0] * q[0] - q[1] * q[1] - q[2] * q[2] + q[3] * q[3]);
-
-        pitch *= 180.0f / PI;
-        yaw *= 180.0f / PI;
-        roll *= 180.0f / PI;
-
-        LOGI("Yaw, Pitch, Roll: ");
-        LOGI("%f %d", yaw, 2);
-        LOGI(", ");
-        LOGI("%f %d", pitch, 2);
-        LOGI(", ");
-        LOGI("%f %d", roll, 2);
-        //    LOGI("average rate = "); LOGI(1.0f/deltat, 2); LOGIln(" Hz");
-        LOGI(" x\t  y\t  z  \n");
-        LOGI("%d \t", (int)(1000 * ax));
-        LOGI("%d \t", (int)(1000 * ay));
-        LOGI("%d \t mg\n", (int)(1000 * az));
-
-        LOGI("%d \t", (int)(gyrox));
-        LOGI("%d \t", (int)(gyroy));
-        LOGI("%d o/s", (int)(gyroz));
-
-        LOGI("%d \t", (int)(yaw));
-        LOGI("%d \t", (int)(pitch));
-        LOGI("%d ypr \n", (int)(roll));
-
-        LOGI("rt: ");
-        LOGI("%f %d Hz\n", 1.0f / deltat, 2);
-
-        blinkOn = ~blinkOn;
-        count = millis();
+        LOGE("mpu_6050_print: mpu6050_basic_read_temperature failed.\n");
+        mpu6050_basic_deinit();
     }
+    /* output */
+    // LOGI("**************** MPU6050 info *********************");
+    // LOGI("mpu6050: acc x is %0.2fg.\n", g[0]);
+    // LOGI("mpu6050: acc y is %0.2fg.\n", g[1]);
+    // LOGI("mpu6050: acc z is %0.2fg.\n", g[2]);
+    // LOGI("mpu6050: gyro x is %0.2fdps.\n", dps[0]);
+    // LOGI("mpu6050: gyro y is %0.2fdps.\n", dps[1]);
+    // LOGI("mpu6050: gyro z is %0.2fdps.\n", dps[2]);
+    // LOGI("mpu6050: temperature %0.2fC.\n", degrees);
+    // LOGI("****************************************************");
+    /* LCD output */
+    static uint8_t lcd_clear_flag = 0;
+    if (lcd_clear_flag == 0)
+    {
+        lcd_clear_flag = 1;
+        LCD_Fill_Color(WHITE);
+    }
+
+    static char lcd_display_text[64] = {0};
+
+    sprintf(lcd_display_text, "acc x:%0.2f", g[0]);
+    LCD_WriteString(10, 20, lcd_display_text, BLUE, WHITE);
+
+    memset(lcd_display_text, 0, sizeof(lcd_display_text));
+    sprintf(lcd_display_text, "acc y:%0.2f", g[1]);
+    LCD_WriteString(10, 20 + (18 * 1), lcd_display_text, BLUE, WHITE);
+
+    memset(lcd_display_text, 0, sizeof(lcd_display_text));
+    sprintf(lcd_display_text, "acc z:%0.2f", g[2]);
+    LCD_WriteString(10, 20 + (18 * 2), lcd_display_text, BLUE, WHITE);
+
+    memset(lcd_display_text, 0, sizeof(lcd_display_text));
+    sprintf(lcd_display_text, "gyro x:%0.2f", dps[0]);
+    LCD_WriteString(10, 20 + (18 * 3), lcd_display_text, BLUE, WHITE);
+
+    memset(lcd_display_text, 0, sizeof(lcd_display_text));
+    sprintf(lcd_display_text, "gyro y:%0.2f", dps[1]);
+    LCD_WriteString(10, 20 + (18 * 4), lcd_display_text, BLUE, WHITE);
+
+    memset(lcd_display_text, 0, sizeof(lcd_display_text));
+    sprintf(lcd_display_text, "gyro z:%0.2f", dps[2]);
+    LCD_WriteString(10, 20 + (18 * 5), lcd_display_text, BLUE, WHITE);
+
+    memset(lcd_display_text, 0, sizeof(lcd_display_text));
+    sprintf(lcd_display_text, "temperature %0.2fC", degrees);
+    LCD_WriteString(10, 20 + (18 * 6), lcd_display_text, BLUE, WHITE);
+
+    /* delay 1000 ms */
+    US_DELAY_MS(3000);
 }
+
+
+/**
+ * @brief     basic example init
+ * @param[in] addr_pin iic device address
+ * @return    status code
+ *            - 0 success
+ *            - 1 init failed
+ * @note      none
+ */
+uint8_t mpu6050_basic_init(mpu6050_address_t addr_pin)
+{
+    uint8_t res;
+
+    /* link interface function */
+    DRIVER_MPU6050_LINK_INIT(&gs_handle, mpu6050_handle_t);
+    DRIVER_MPU6050_LINK_IIC_INIT(&gs_handle, mpu6050_interface_iic_init);
+    DRIVER_MPU6050_LINK_IIC_DEINIT(&gs_handle, mpu6050_interface_iic_deinit);
+    DRIVER_MPU6050_LINK_IIC_READ(&gs_handle, mpu6050_interface_iic_read);
+    DRIVER_MPU6050_LINK_IIC_WRITE(&gs_handle, mpu6050_interface_iic_write);
+    DRIVER_MPU6050_LINK_DELAY_MS(&gs_handle, mpu6050_interface_delay_ms);
+    DRIVER_MPU6050_LINK_DEBUG_PRINT(&gs_handle, mpu6050_interface_debug_print);
+    DRIVER_MPU6050_LINK_RECEIVE_CALLBACK(&gs_handle, mpu6050_interface_receive_callback);
+
+    /* set the addr pin */
+    res = mpu6050_set_addr_pin(&gs_handle, addr_pin);
+    if (res != 0)
+    {
+        mpu6050_interface_debug_print("mpu6050: set addr pin failed.\n");
+
+        return 1;
+    }
+
+    /* init */
+    res = mpu6050_init(&gs_handle);
+    if (res != 0)
+    {
+        mpu6050_interface_debug_print("mpu6050: init failed.\n");
+
+        return 1;
+    }
+
+    /* delay 100 ms */
+    mpu6050_interface_delay_ms(100);
+
+    /* disable sleep */
+    res = mpu6050_set_sleep(&gs_handle, MPU6050_BOOL_FALSE);
+    if (res != 0)
+    {
+        mpu6050_interface_debug_print("mpu6050: set sleep failed.\n");
+        (void)mpu6050_deinit(&gs_handle);
+
+        return 1;
+    }
+
+    /* set the default clock source */
+    res = mpu6050_set_clock_source(&gs_handle, MPU6050_BASIC_DEFAULT_CLOCK_SOURCE);
+    if (res != 0)
+    {
+        mpu6050_interface_debug_print("mpu6050: set clock source failed.\n");
+        (void)mpu6050_deinit(&gs_handle);
+
+        return 1;
+    }
+
+    /* set the default rate */
+    res = mpu6050_set_sample_rate_divider(&gs_handle, (1000 / MPU6050_BASIC_DEFAULT_RATE) - 1);
+    if (res != 0)
+    {
+        mpu6050_interface_debug_print("mpu6050: set sample rate divider failed.\n");
+        (void)mpu6050_deinit(&gs_handle);
+
+        return 1;
+    }
+
+    /* set the default low pass filter */
+    res = mpu6050_set_low_pass_filter(&gs_handle, MPU6050_BASIC_DEFAULT_LOW_PASS_FILTER);
+    if (res != 0)
+    {
+        mpu6050_interface_debug_print("mpu6050: set low pass filter failed.\n");
+        (void)mpu6050_deinit(&gs_handle);
+
+        return 1;
+    }
+
+    /* enable temperature sensor */
+    res = mpu6050_set_temperature_sensor(&gs_handle, MPU6050_BOOL_TRUE);
+    if (res != 0)
+    {
+        mpu6050_interface_debug_print("mpu6050: set temperature sensor failed.\n");
+        (void)mpu6050_deinit(&gs_handle);
+
+        return 1;
+    }
+
+    /* set the default cycle wake up */
+    res = mpu6050_set_cycle_wake_up(&gs_handle, MPU6050_BASIC_DEFAULT_CYCLE_WAKE_UP);
+    if (res != 0)
+    {
+        mpu6050_interface_debug_print("mpu6050: set cycle wake up failed.\n");
+        (void)mpu6050_deinit(&gs_handle);
+
+        return 1;
+    }
+
+    /* set the default wake up frequency */
+    res = mpu6050_set_wake_up_frequency(&gs_handle, MPU6050_BASIC_DEFAULT_WAKE_UP_FREQUENCY);
+    if (res != 0)
+    {
+        mpu6050_interface_debug_print("mpu6050: set wake up frequency failed.\n");
+        (void)mpu6050_deinit(&gs_handle);
+
+        return 1;
+    }
+
+    /* enable acc x */
+    res = mpu6050_set_standby_mode(&gs_handle, MPU6050_SOURCE_ACC_X, MPU6050_BOOL_FALSE);
+    if (res != 0)
+    {
+        mpu6050_interface_debug_print("mpu6050: set standby mode failed.\n");
+        (void)mpu6050_deinit(&gs_handle);
+
+        return 1;
+    }
+
+    /* enable acc y */
+    res = mpu6050_set_standby_mode(&gs_handle, MPU6050_SOURCE_ACC_Y, MPU6050_BOOL_FALSE);
+    if (res != 0)
+    {
+        mpu6050_interface_debug_print("mpu6050: set standby mode failed.\n");
+        (void)mpu6050_deinit(&gs_handle);
+
+        return 1;
+    }
+
+    /* enable acc z */
+    res = mpu6050_set_standby_mode(&gs_handle, MPU6050_SOURCE_ACC_Z, MPU6050_BOOL_FALSE);
+    if (res != 0)
+    {
+        mpu6050_interface_debug_print("mpu6050: set standby mode failed.\n");
+        (void)mpu6050_deinit(&gs_handle);
+
+        return 1;
+    }
+
+    /* enable gyro x */
+    res = mpu6050_set_standby_mode(&gs_handle, MPU6050_SOURCE_GYRO_X, MPU6050_BOOL_FALSE);
+    if (res != 0)
+    {
+        mpu6050_interface_debug_print("mpu6050: set standby mode failed.\n");
+        (void)mpu6050_deinit(&gs_handle);
+
+        return 1;
+    }
+
+    /* enable gyro y */
+    res = mpu6050_set_standby_mode(&gs_handle, MPU6050_SOURCE_GYRO_Y, MPU6050_BOOL_FALSE);
+    if (res != 0)
+    {
+        mpu6050_interface_debug_print("mpu6050: set standby mode failed.\n");
+        (void)mpu6050_deinit(&gs_handle);
+
+        return 1;
+    }
+
+    /* enable gyro z */
+    res = mpu6050_set_standby_mode(&gs_handle, MPU6050_SOURCE_GYRO_Z, MPU6050_BOOL_FALSE);
+    if (res != 0)
+    {
+        mpu6050_interface_debug_print("mpu6050: set standby mode failed.\n");
+        (void)mpu6050_deinit(&gs_handle);
+
+        return 1;
+    }
+
+    /* disable gyroscope x test */
+    res = mpu6050_set_gyroscope_test(&gs_handle, MPU6050_AXIS_X, MPU6050_BOOL_FALSE);
+    if (res != 0)
+    {
+        mpu6050_interface_debug_print("mpu6050: set gyroscope test failed.\n");
+        (void)mpu6050_deinit(&gs_handle);
+
+        return 1;
+    }
+
+    /* disable gyroscope y test */
+    res = mpu6050_set_gyroscope_test(&gs_handle, MPU6050_AXIS_Y, MPU6050_BOOL_FALSE);
+    if (res != 0)
+    {
+        mpu6050_interface_debug_print("mpu6050: set gyroscope test failed.\n");
+        (void)mpu6050_deinit(&gs_handle);
+
+        return 1;
+    }
+
+    /* disable gyroscope z test */
+    res = mpu6050_set_gyroscope_test(&gs_handle, MPU6050_AXIS_Z, MPU6050_BOOL_FALSE);
+    if (res != 0)
+    {
+        mpu6050_interface_debug_print("mpu6050: set gyroscope test failed.\n");
+        (void)mpu6050_deinit(&gs_handle);
+
+        return 1;
+    }
+
+    /* disable accelerometer x test */
+    res = mpu6050_set_accelerometer_test(&gs_handle, MPU6050_AXIS_X, MPU6050_BOOL_FALSE);
+    if (res != 0)
+    {
+        mpu6050_interface_debug_print("mpu6050: set accelerometer test failed.\n");
+        (void)mpu6050_deinit(&gs_handle);
+
+        return 1;
+    }
+
+    /* disable accelerometer y test */
+    res = mpu6050_set_accelerometer_test(&gs_handle, MPU6050_AXIS_Y, MPU6050_BOOL_FALSE);
+    if (res != 0)
+    {
+        mpu6050_interface_debug_print("mpu6050: set accelerometer test failed.\n");
+        (void)mpu6050_deinit(&gs_handle);
+
+        return 1;
+    }
+
+    /* disable accelerometer z test */
+    res = mpu6050_set_accelerometer_test(&gs_handle, MPU6050_AXIS_Z, MPU6050_BOOL_FALSE);
+    if (res != 0)
+    {
+        mpu6050_interface_debug_print("mpu6050: set accelerometer test failed.\n");
+        (void)mpu6050_deinit(&gs_handle);
+
+        return 1;
+    }
+
+    /* disable fifo */
+    res = mpu6050_set_fifo(&gs_handle, MPU6050_BOOL_FALSE);
+    if (res != 0)
+    {
+        mpu6050_interface_debug_print("mpu6050: set fifo failed.\n");
+        (void)mpu6050_deinit(&gs_handle);
+
+        return 1;
+    }
+
+    /* disable temp fifo */
+    res = mpu6050_set_fifo_enable(&gs_handle, MPU6050_FIFO_TEMP, MPU6050_BOOL_FALSE);
+    if (res != 0)
+    {
+        mpu6050_interface_debug_print("mpu6050: set fifo enable failed.\n");
+        (void)mpu6050_deinit(&gs_handle);
+
+        return 1;
+    }
+
+    /* disable xg fifo */
+    res = mpu6050_set_fifo_enable(&gs_handle, MPU6050_FIFO_XG, MPU6050_BOOL_FALSE);
+    if (res != 0)
+    {
+        mpu6050_interface_debug_print("mpu6050: set fifo enable failed.\n");
+        (void)mpu6050_deinit(&gs_handle);
+
+        return 1;
+    }
+
+    /* disable yg fifo */
+    res = mpu6050_set_fifo_enable(&gs_handle, MPU6050_FIFO_YG, MPU6050_BOOL_FALSE);
+    if (res != 0)
+    {
+        mpu6050_interface_debug_print("mpu6050: set fifo enable failed.\n");
+        (void)mpu6050_deinit(&gs_handle);
+
+        return 1;
+    }
+
+    /* disable zg fifo */
+    res = mpu6050_set_fifo_enable(&gs_handle, MPU6050_FIFO_ZG, MPU6050_BOOL_FALSE);
+    if (res != 0)
+    {
+        mpu6050_interface_debug_print("mpu6050: set fifo enable failed.\n");
+        (void)mpu6050_deinit(&gs_handle);
+
+        return 1;
+    }
+
+    /* disable accel fifo */
+    res = mpu6050_set_fifo_enable(&gs_handle, MPU6050_FIFO_ACCEL, MPU6050_BOOL_FALSE);
+    if (res != 0)
+    {
+        mpu6050_interface_debug_print("mpu6050: set fifo enable failed.\n");
+        (void)mpu6050_deinit(&gs_handle);
+
+        return 1;
+    }
+
+    /* set the default interrupt level */
+    res = mpu6050_set_interrupt_level(&gs_handle, MPU6050_BASIC_DEFAULT_INTERRUPT_PIN_LEVEL);
+    if (res != 0)
+    {
+        mpu6050_interface_debug_print("mpu6050: set interrupt level failed.\n");
+        (void)mpu6050_deinit(&gs_handle);
+
+        return 1;
+    }
+
+    /* set the default pin type */
+    res = mpu6050_set_interrupt_pin_type(&gs_handle, MPU6050_BASIC_DEFAULT_INTERRUPT_PIN_TYPE);
+    if (res != 0)
+    {
+        mpu6050_interface_debug_print("mpu6050: set interrupt pin type failed.\n");
+        (void)mpu6050_deinit(&gs_handle);
+
+        return 1;
+    }
+
+    /* set the default motion interrupt */
+    res = mpu6050_set_interrupt(&gs_handle, MPU6050_INTERRUPT_MOTION, MPU6050_BASIC_DEFAULT_INTERRUPT_MOTION);
+    if (res != 0)
+    {
+        mpu6050_interface_debug_print("mpu6050: set interrupt failed.\n");
+        (void)mpu6050_deinit(&gs_handle);
+
+        return 1;
+    }
+
+    /* set the default fifo overflow interrupt */
+    res = mpu6050_set_interrupt(&gs_handle, MPU6050_INTERRUPT_FIFO_OVERFLOW,
+                                MPU6050_BASIC_DEFAULT_INTERRUPT_FIFO_OVERFLOW);
+    if (res != 0)
+    {
+        mpu6050_interface_debug_print("mpu6050: set interrupt failed.\n");
+        (void)mpu6050_deinit(&gs_handle);
+
+        return 1;
+    }
+
+    /* set the default dmp interrupt */
+    res = mpu6050_set_interrupt(&gs_handle, MPU6050_INTERRUPT_DMP, MPU6050_BASIC_DEFAULT_INTERRUPT_DMP);
+    if (res != 0)
+    {
+        mpu6050_interface_debug_print("mpu6050: set interrupt failed.\n");
+        (void)mpu6050_deinit(&gs_handle);
+
+        return 1;
+    }
+
+    /* set the default i2c master interrupt */
+    res = mpu6050_set_interrupt(&gs_handle, MPU6050_INTERRUPT_I2C_MAST, MPU6050_BASIC_DEFAULT_INTERRUPT_I2C_MAST);
+    if (res != 0)
+    {
+        mpu6050_interface_debug_print("mpu6050: set interrupt failed.\n");
+        (void)mpu6050_deinit(&gs_handle);
+
+        return 1;
+    }
+
+    /* set the default data ready interrupt */
+    res = mpu6050_set_interrupt(&gs_handle, MPU6050_INTERRUPT_DATA_READY, MPU6050_BASIC_DEFAULT_INTERRUPT_DATA_READY);
+    if (res != 0)
+    {
+        mpu6050_interface_debug_print("mpu6050: set interrupt failed.\n");
+        (void)mpu6050_deinit(&gs_handle);
+
+        return 1;
+    }
+
+    /* set the default interrupt latch */
+    res = mpu6050_set_interrupt_latch(&gs_handle, MPU6050_BASIC_DEFAULT_INTERRUPT_LATCH);
+    if (res != 0)
+    {
+        mpu6050_interface_debug_print("mpu6050: set interrupt latch failed.\n");
+        (void)mpu6050_deinit(&gs_handle);
+
+        return 1;
+    }
+
+    /* set the default interrupt read clear */
+    res = mpu6050_set_interrupt_read_clear(&gs_handle, MPU6050_BASIC_DEFAULT_INTERRUPT_READ_CLEAR);
+    if (res != 0)
+    {
+        mpu6050_interface_debug_print("mpu6050: set interrupt read clear failed.\n");
+        (void)mpu6050_deinit(&gs_handle);
+
+        return 1;
+    }
+
+    /* set the extern sync */
+    res = mpu6050_set_extern_sync(&gs_handle, MPU6050_BASIC_DEFAULT_EXTERN_SYNC);
+    if (res != 0)
+    {
+        mpu6050_interface_debug_print("mpu6050: set extern sync failed.\n");
+        (void)mpu6050_deinit(&gs_handle);
+
+        return 1;
+    }
+
+    /* set the default fsync interrupt */
+    res = mpu6050_set_fsync_interrupt(&gs_handle, MPU6050_BASIC_DEFAULT_FSYNC_INTERRUPT);
+    if (res != 0)
+    {
+        mpu6050_interface_debug_print("mpu6050: set fsync interrupt failed.\n");
+        (void)mpu6050_deinit(&gs_handle);
+
+        return 1;
+    }
+
+    /* set the default fsync interrupt level */
+    res = mpu6050_set_fsync_interrupt_level(&gs_handle, MPU6050_BASIC_DEFAULT_FSYNC_INTERRUPT_LEVEL);
+    if (res != 0)
+    {
+        mpu6050_interface_debug_print("mpu6050: set fsync interrupt level failed.\n");
+        (void)mpu6050_deinit(&gs_handle);
+
+        return 1;
+    }
+
+    /* set the default iic master */
+    res = mpu6050_set_iic_master(&gs_handle, MPU6050_BASIC_DEFAULT_IIC_MASTER);
+    if (res != 0)
+    {
+        mpu6050_interface_debug_print("mpu6050: set iic master failed.\n");
+        (void)mpu6050_deinit(&gs_handle);
+
+        return 1;
+    }
+
+    /* set the default iic bypass */
+    res = mpu6050_set_iic_bypass(&gs_handle, MPU6050_BASIC_DEFAULT_IIC_BYPASS);
+    if (res != 0)
+    {
+        mpu6050_interface_debug_print("mpu6050: set iic bypass failed.\n");
+        (void)mpu6050_deinit(&gs_handle);
+
+        return 1;
+    }
+
+    /* set the default accelerometer range */
+    res = mpu6050_set_accelerometer_range(&gs_handle, MPU6050_BASIC_DEFAULT_ACCELEROMETER_RANGE);
+    if (res != 0)
+    {
+        mpu6050_interface_debug_print("mpu6050: set accelerometer range failed.\n");
+        (void)mpu6050_deinit(&gs_handle);
+
+        return 1;
+    }
+
+    /* set the default gyroscope range */
+    res = mpu6050_set_gyroscope_range(&gs_handle, MPU6050_BASIC_DEFAULT_GYROSCOPE_RANGE);
+    if (res != 0)
+    {
+        mpu6050_interface_debug_print("mpu6050: set gyroscope range failed.\n");
+        (void)mpu6050_deinit(&gs_handle);
+
+        return 1;
+    }
+
+    return 0;
+}
+
+/**
+ * @brief      basic example read temperature
+ * @param[out] *degrees pointer to a converted data buffer
+ * @return     status code
+ *             - 0 success
+ *             - 1 read temperature failed
+ * @note       none
+ */
+uint8_t mpu6050_basic_read_temperature(float* degrees)
+{
+    int16_t raw;
+
+    /* read temperature */
+    if (mpu6050_read_temperature(&gs_handle, &raw, degrees) != 0)
+    {
+        return 1;
+    }
+
+    return 0;
+}
+
+/**
+ * @brief      basic example read
+ * @param[out] *g pointer to a converted data buffer
+ * @param[out] *dps pointer to a converted data buffer
+ * @return     status code
+ *             - 0 success
+ *             - 1 read failed
+ * @note       none
+ */
+uint8_t mpu6050_basic_read(float g[3], float dps[3])
+{
+    uint16_t len;
+    int16_t accel_raw[3];
+    int16_t gyro_raw[3];
+    float accel[3];
+    float gyro[3];
+
+    /* set 1 */
+    len = 1;
+
+    /* read data */
+    if (mpu6050_read(&gs_handle,
+                     (int16_t (*)[3])&accel_raw, (float (*)[3])&accel,
+                     (int16_t (*)[3])&gyro_raw, (float (*)[3])&gyro,
+                     &len) != 0
+    )
+    {
+        return 1;
+    }
+
+    /* copy the data */
+    g[0] = accel[0];
+    g[1] = accel[1];
+    g[2] = accel[2];
+    dps[0] = gyro[0];
+    dps[1] = gyro[1];
+    dps[2] = gyro[2];
+
+    return 0;
+}
+
+/**
+ * @brief  basic example deinit
+ * @return status code
+ *         - 0 success
+ *         - 1 deinit failed
+ * @note   none
+ */
+uint8_t mpu6050_basic_deinit(void)
+{
+    /* deinit */
+    if (mpu6050_deinit(&gs_handle) != 0)
+    {
+        return 1;
+    }
+
+    return 0;
+}
+
 
 #endif

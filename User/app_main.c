@@ -101,6 +101,7 @@ static uint8_t on_loop(void)
 static void on_end(void)
 {
     LOGI("on_end\n");
+    mpu_6050_deinit();
 }
 
 

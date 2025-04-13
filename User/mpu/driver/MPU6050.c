@@ -1,4 +1,7 @@
 #include "MPU6050.h"
+
+#if MPU6050_ON==1
+
 #include "stdlib.h"
 #include "stdint.h"
 #include "math.h"
@@ -425,3 +428,5 @@ void readBytes(uint8_t address, uint8_t subAddress, uint8_t count, uint8_t* dest
     // } // Put read results in the Rx buffer
     US_I2C_MEM_READ(address, subAddress, dest, count);
 }
+
+#endif
