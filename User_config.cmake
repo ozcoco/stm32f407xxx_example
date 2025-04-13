@@ -7,7 +7,7 @@ option(USE_USER_LED "是否启用LED模块" ON)
 option(USE_USER_LOG "是否启用log模块" ON)
 option(USE_USER_FLASH "是否启用FLASH模块" OFF)
 option(USE_USER_LIGHT_SENSOR "是否启用light sensor模块" OFF)
-option(USE_USER_MPU_6050 "是否启用MPU6050模块" OFF)
+option(USE_USER_MPU_6050 "是否启用MPU6050模块" ON)
 option(USE_USER_LCD "是否启用LCD模块" ON)
 option(USE_USER_AT24C02 "是否启用AT24C02模块" OFF)
 

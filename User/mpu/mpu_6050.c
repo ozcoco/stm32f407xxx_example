@@ -5,97 +5,285 @@
 #ifdef USE_USER_MPU_6050
 
 #include "mpu_6050.h"
-#include <stdint.h>
-#include "i2c_utils.h"
-#include "delay/delay.h"
+#include "driver/MPU6050.h"
 #include "log/log.h"
+#include <stdbool.h>
+#include <math.h>
 
 // #define MPU_6050_ADDR 0x68
 #define MPU_6050_ADDR 0xD0
-//-----------------------------------------
-// 定义MPU6050内部地址
-//-----------------------------------------
-#define SMPLRT_DIV 0x19 //陀螺仪采样率，典型值：0x07(125Hz)
-#define CONFIG 0x1A //低通滤波频率，典型值：0x06(5Hz)
-#define GYRO_CONFIG 0x1B //陀螺仪自检及测量范围，典型值：0x18(不自检，2000deg/s)
-#define ACCEL_CONFIG 0x1C //加速计自检、测量范围及高通滤波频率，典型值：0x01(不自检，2G，5Hz)
 
-/* 加速度相关寄存器地址 */
-#define ACCEL_XOUT_H 0x3B
-#define ACCEL_XOUT_L 0x3C
-#define ACCEL_YOUT_H 0x3D
-#define ACCEL_YOUT_L 0x3E
-#define ACCEL_ZOUT_H 0x3F
-#define ACCEL_ZOUT_L 0x40
+#define micros() HAL_GetTick()
+#define millis() HAL_GetTick()
 
-/* 温度相关寄存器地址 */
-#define TEMP_OUT_H 0x41
-#define TEMP_OUT_L 0x42
+#define PI 3.14159265
 
-/* 陀螺仪相关寄存器地址 */
-#define GYRO_XOUT_H 0x43
-#define GYRO_XOUT_L 0x44
-#define GYRO_YOUT_H 0x45
-#define GYRO_YOUT_L 0x46
-#define GYRO_ZOUT_H 0x47
-#define GYRO_ZOUT_L 0x48
-
-#define PWR_MGMT_1 0x6B  //电源管理，典型值：0x00(正常启用)
-#define WHO_AM_I 0x75 //IIC地址寄存器(默认数值0x68，只读)
-
-static void mpu6050_write_reg(const uint8_t reg_addr, uint8_t* const data, const uint16_t len)
-{
-    US_I2C_MEM_WRITE(MPU_6050_ADDR, reg_addr, data, len);
-}
-
-static void mpu6050_write_data(const uint8_t reg_addr, uint8_t data)
-{
-    US_I2C_MEM_WRITE(MPU_6050_ADDR, reg_addr, &data, 1);
-}
-
-
-static void mpu6050_read_reg(const uint8_t reg_addr, uint8_t* const data, const uint16_t len)
-{
-    US_I2C_MEM_READ(MPU_6050_ADDR, reg_addr, data, len);
-}
-
-
-static int16_t mpu6050_read_data(const uint8_t reg_addr)
-{
-    int16_t data = 0U;
-    mpu6050_read_reg(reg_addr, (uint8_t*)&data, sizeof(data));
-    return data;
-}
+float aRes, gRes; // scale resolutions per LSB for the sensors
+// Pin definitions
+int intPin = 12; // These can be changed, 2 and 3 are the Arduinos ext int pins
+#define blinkPin 13  // Blink LED on Teensy or Pro Mini when updating
+bool blinkOn = false;
+int16_t accelCount[3]; // Stores the 16-bit signed accelerometer sensor output
+float ax, ay, az; // Stores the real accel value in g's
+int16_t gyroCount[3]; // Stores the 16-bit signed gyro sensor output
+float gyrox, gyroy, gyroz; // Stores the real gyro value in degrees per seconds
+float gyroBias[3] = {0, 0, 0}, accelBias[3] = {0, 0, 0}; // Bias corrections for gyro and accelerometer
+int16_t tempCount; // Stores the real internal chip temperature in degrees Celsius
+float temperature;
+float SelfTest[6];
+float q[4] = {1.0f, 0.0f, 0.0f, 0.0f}; // vector to hold quaternion
+uint32_t delt_t = 0; // used to control display output rate
+uint32_t count = 0; // used to control display output rate
+float pitch, yaw, roll;
+// parameters for 6 DoF sensor fusion calculations
+const float GyroMeasError = PI * (40.0f / 180.0f);
+// gyroscope measurement error in rads/s (start at 60 deg/s), then reduce after ~10 s to 3
+const float beta = sqrtf(3.0f / 4.0f) * GyroMeasError; // compute beta
+float GyroMeasDrift = PI * (2.0f / 180.0f); // gyroscope measurement drift in rad/s/s (start at 0.0 deg/s/s)
+// float zeta = sqrtf(3.0f / 4.0f) * GyroMeasDrift;
+float zeta = 0.0f;
+// compute zeta, the other free parameter in the Madgwick scheme usually set to a small or zero value
+float deltat = 0.0f; // integration interval for both filter schemes
+uint32_t lastUpdate = 0, firstUpdate = 0; // used to calculate integration interval
+uint32_t Now = 0; // used to calculate integration interval
 
 
 void mpu_6050_init(void)
 {
-    // delay_ms(100);
-    // 解除休眠状态
-    mpu6050_write_data(PWR_MGMT_1, 0x00);
-    // 陀螺仪采样率，典型值：0x07(125Hz)
-    mpu6050_write_data(SMPLRT_DIV, 0x07);
-    mpu6050_write_data(CONFIG, 0x06); //低通滤波频率，典型值：0x06(5Hz)
-    mpu6050_write_data(GYRO_CONFIG, 0x18); //陀螺仪自检及测量范围，典型值：0x18(不自检，2000deg/s)
-    mpu6050_write_data(ACCEL_CONFIG, 0x01); //加速计自检、测量范围及高通滤波频率，典型值：0x01(不自检，2G，5Hz)
+    zeta = sqrtf(3.0f / 4.0f) * GyroMeasDrift;
+    // Read the WHO_AM_I register, this is a good test of communication
+    uint8_t c = readByte(MPU6050_ADDRESS, WHO_AM_I_MPU6050); // Read WHO_AM_I register for MPU-6050
+    LOGI("I AM %x\n", c);
+    LOGI(" I Should Be %x\n", 0x68);
+
+    if (c == 0x68) // WHO_AM_I should always be 0x68
+    {
+        LOGI("MPU6050 is online...\n");
+
+        MPU6050SelfTest(SelfTest); // Start by performing self test and reporting values
+        //    Serial.print("x-axis self test: acceleration trim within : "); Serial.print(SelfTest[0],1); LOGI("% of factory value");
+        //    Serial.print("y-axis self test: acceleration trim within : "); Serial.print(SelfTest[1],1); LOGI("% of factory value");
+        //    Serial.print("z-axis self test: acceleration trim within : "); Serial.print(SelfTest[2],1); LOGI("% of factory value");
+        //    Serial.print("x-axis self test: gyration trim within : "); Serial.print(SelfTest[3],1); LOGI("% of factory value");
+        //    Serial.print("y-axis self test: gyration trim within : "); Serial.print(SelfTest[4],1); LOGI("% of factory value");
+        //    Serial.print("z-axis self test: gyration trim within : "); Serial.print(SelfTest[5],1); LOGI("% of factory value");
+
+        if (SelfTest[0] < 1.0f && SelfTest[1] < 1.0f && SelfTest[2] < 1.0f && SelfTest[3] < 1.0f && SelfTest[4] < 1.0f
+            && SelfTest[5] < 1.0f)
+        {
+            LOGI("Pass Selftest!\n");
+
+            calibrateMPU6050(gyroBias, accelBias); // Calibrate gyro and accelerometers, load biases in bias registers
+            LOGI("MPU6050 bias\n");
+            LOGI(" x\t  y\t  z  \n");
+            LOGI("%d \t", (int)(1000 * accelBias[0]));
+            LOGI("%d \t", (int)(1000 * accelBias[1]));
+            LOGI("%d mg\n", (int)(1000 * accelBias[2]));
+            LOGI("%f %d \t", gyroBias[0], 1);
+            LOGI("%f %d \t", gyroBias[1], 1);
+            LOGI("%f %d o/s\n", gyroBias[2], 1);
+            initMPU6050();
+            LOGI("MPU6050 initialized for active data mode....\n");
+            // Initialize device for active mode read of acclerometer, gyroscope, and temperature
+        }
+    }
 }
+
+
+// Implementation of Sebastian Madgwick's "...efficient orientation filter for... inertial/magnetic sensor arrays"
+// (see http://www.x-io.co.uk/category/open-source/ for examples and more details)
+// which fuses acceleration and rotation rate to produce a quaternion-based estimate of relative
+// device orientation -- which can be converted to yaw, pitch, and roll. Useful for stabilizing quadcopters, etc.
+// The performance of the orientation filter is at least as good as conventional Kalman-based filtering algorithms
+// but is much less computationally intensive---it can be performed on a 3.3 V Pro Mini operating at 8 MHz!
+void MadgwickQuaternionUpdate(float ax, float ay, float az, float gyrox, float gyroy, float gyroz)
+{
+    float q1 = q[0], q2 = q[1], q3 = q[2], q4 = q[3]; // short name local variable for readability
+    float norm; // vector norm
+    float f1, f2, f3; // objetive funcyion elements
+    float J_11or24, J_12or23, J_13or22, J_14or21, J_32, J_33; // objective function Jacobian elements
+    float qDot1, qDot2, qDot3, qDot4;
+    float hatDot1, hatDot2, hatDot3, hatDot4;
+    float gerrx, gerry, gerrz, gbiasx, gbiasy, gbiasz; // gyro bias error
+
+    // Auxiliary variables to avoid repeated arithmetic
+    float _halfq1 = 0.5f * q1;
+    float _halfq2 = 0.5f * q2;
+    float _halfq3 = 0.5f * q3;
+    float _halfq4 = 0.5f * q4;
+    float _2q1 = 2.0f * q1;
+    float _2q2 = 2.0f * q2;
+    float _2q3 = 2.0f * q3;
+    float _2q4 = 2.0f * q4;
+    float _2q1q3 = 2.0f * q1 * q3;
+    float _2q3q4 = 2.0f * q3 * q4;
+
+    // Normalise accelerometer measurement
+    norm = sqrt(ax * ax + ay * ay + az * az);
+    if (norm == 0.0f) return; // handle NaN
+    norm = 1.0f / norm;
+    ax *= norm;
+    ay *= norm;
+    az *= norm;
+
+    // Compute the objective function and Jacobian
+    f1 = _2q2 * q4 - _2q1 * q3 - ax;
+    f2 = _2q1 * q2 + _2q3 * q4 - ay;
+    f3 = 1.0f - _2q2 * q2 - _2q3 * q3 - az;
+    J_11or24 = _2q3;
+    J_12or23 = _2q4;
+    J_13or22 = _2q1;
+    J_14or21 = _2q2;
+    J_32 = 2.0f * J_14or21;
+    J_33 = 2.0f * J_11or24;
+
+    // Compute the gradient (matrix multiplication)
+    hatDot1 = J_14or21 * f2 - J_11or24 * f1;
+    hatDot2 = J_12or23 * f1 + J_13or22 * f2 - J_32 * f3;
+    hatDot3 = J_12or23 * f2 - J_33 * f3 - J_13or22 * f1;
+    hatDot4 = J_14or21 * f1 + J_11or24 * f2;
+
+    // Normalize the gradient
+    norm = sqrt(hatDot1 * hatDot1 + hatDot2 * hatDot2 + hatDot3 * hatDot3 + hatDot4 * hatDot4);
+    hatDot1 /= norm;
+    hatDot2 /= norm;
+    hatDot3 /= norm;
+    hatDot4 /= norm;
+
+    // Compute estimated gyroscope biases
+    gerrx = _2q1 * hatDot2 - _2q2 * hatDot1 - _2q3 * hatDot4 + _2q4 * hatDot3;
+    gerry = _2q1 * hatDot3 + _2q2 * hatDot4 - _2q3 * hatDot1 - _2q4 * hatDot2;
+    gerrz = _2q1 * hatDot4 - _2q2 * hatDot3 + _2q3 * hatDot2 - _2q4 * hatDot1;
+
+    // Compute and remove gyroscope biases
+    gbiasx += gerrx * deltat * zeta;
+    gbiasy += gerry * deltat * zeta;
+    gbiasz += gerrz * deltat * zeta;
+    gyrox -= gbiasx;
+    gyroy -= gbiasy;
+    gyroz -= gbiasz;
+
+    // Compute the quaternion derivative
+    qDot1 = -_halfq2 * gyrox - _halfq3 * gyroy - _halfq4 * gyroz;
+    qDot2 = _halfq1 * gyrox + _halfq3 * gyroz - _halfq4 * gyroy;
+    qDot3 = _halfq1 * gyroy - _halfq2 * gyroz + _halfq4 * gyrox;
+    qDot4 = _halfq1 * gyroz + _halfq2 * gyroy - _halfq3 * gyrox;
+
+    // Compute then integrate estimated quaternion derivative
+    q1 += (qDot1 - (beta * hatDot1)) * deltat;
+    q2 += (qDot2 - (beta * hatDot2)) * deltat;
+    q3 += (qDot3 - (beta * hatDot3)) * deltat;
+    q4 += (qDot4 - (beta * hatDot4)) * deltat;
+
+    // Normalize the quaternion
+    norm = sqrt(q1 * q1 + q2 * q2 + q3 * q3 + q4 * q4); // normalise quaternion
+    norm = 1.0f / norm;
+    q[0] = q1 * norm;
+    q[1] = q2 * norm;
+    q[2] = q3 * norm;
+    q[3] = q4 * norm;
+}
+
 
 void mpu_6050_print(void)
 {
-    /* 打印 x, y, z 轴加速度 */
-    LOGI("ACCEL_X: %d\t", mpu6050_read_data(ACCEL_XOUT_H));
-    LOGI("ACCEL_Y: %d\t", mpu6050_read_data(ACCEL_YOUT_H));
-    LOGI("ACCEL_Z: %d\t", mpu6050_read_data(ACCEL_ZOUT_H));
+    // If data ready bit set, all data registers have new data
+    if (readByte(MPU6050_ADDRESS, INT_STATUS) & 0x01)
+    {
+        // check if data ready interrupt
+        readAccelData(accelCount); // Read the x/y/z adc values
+        aRes = getAres();
 
-    /* 打印温度，需要根据手册的公式换算为摄氏度 */
-    LOGI("TEMP: %0.2f\t", mpu6050_read_data(TEMP_OUT_H) / 340.0 + 36.53);
+        // Now we'll calculate the accleration value into actual g's
+        ax = (float)accelCount[0] * aRes; // get actual g value, this depends on scale being set
+        ay = (float)accelCount[1] * aRes;
+        az = (float)accelCount[2] * aRes;
 
-    /* 打印 x, y, z 轴角速度 */
-    LOGI("GYRO_X: %d\t", mpu6050_read_data(GYRO_XOUT_H));
-    LOGI("GYRO_Y: %d\t", mpu6050_read_data(GYRO_YOUT_H));
-    LOGI("GYRO_Z: %d\t", mpu6050_read_data(GYRO_ZOUT_H));
+        readGyroData(gyroCount); // Read the x/y/z adc values
+        gRes = getGres();
 
-    LOGI("\r\n");
+        // Calculate the gyro value into actual degrees per second
+        gyrox = (float)gyroCount[0] * gRes; // get actual gyro value, this depends on scale being set
+        gyroy = (float)gyroCount[1] * gRes;
+        gyroz = (float)gyroCount[2] * gRes;
+
+        tempCount = readTempData(); // Read the x/y/z adc values
+        temperature = ((float)tempCount) / 340. + 36.53; // Temperature in degrees Centigrade
+    }
+
+    Now = micros();
+    deltat = ((Now - lastUpdate) / 1000000.0f); // set integration time by time elapsed since last filter update
+    lastUpdate = Now;
+    //    if(lastUpdate - firstUpdate > 10000000uL) {
+    //      beta = 0.041; // decrease filter gain after stabilized
+    //      zeta = 0.015; // increase gyro bias drift gain after stabilized
+    //    }
+    // Pass gyro rate as rad/s
+    MadgwickQuaternionUpdate(ax, ay, az, gyrox * PI / 180.0f, gyroy * PI / 180.0f, gyroz * PI / 180.0f);
+
+    // Serial print and/or display at 0.5 s rate independent of data rates
+    delt_t = millis() - count;
+    if (delt_t > 500)
+    {
+        // update LCD once per half-second independent of read rate
+        // digitalWrite(blinkPin, blinkOn);
+        /*
+            Serial.print("ax = "); Serial.print((int)1000*ax);
+            Serial.print(" ay = "); Serial.print((int)1000*ay);
+            Serial.print(" az = "); Serial.print((int)1000*az); Serial.println(" mg");
+
+            Serial.print("gyrox = "); Serial.print( gyrox, 1);
+            Serial.print(" gyroy = "); Serial.print( gyroy, 1);
+            Serial.print(" gyroz = "); Serial.print( gyroz, 1); Serial.println(" deg/s");
+
+            Serial.print("q0 = "); Serial.print(q[0]);
+            Serial.print(" qx = "); Serial.print(q[1]);
+            Serial.print(" qy = "); Serial.print(q[2]);
+            Serial.print(" qz = "); Serial.println(q[3]);
+        */
+        // Define output variables from updated quaternion---these are Tait-Bryan angles, commonly used in aircraft orientation.
+        // In this coordinate system, the positive z-axis is down toward Earth.
+        // Yaw is the angle between Sensor x-axis and Earth magnetic North (or true North if corrected for local declination, looking down on the sensor positive yaw is counterclockwise.
+        // Pitch is angle between sensor x-axis and Earth ground plane, toward the Earth is positive, up toward the sky is negative.
+        // Roll is angle between sensor y-axis and Earth ground plane, y-axis up is positive roll.
+        // These arise from the definition of the homogeneous rotation matrix constructed from quaternions.
+        // Tait-Bryan angles as well as Euler angles are non-commutative; that is, the get the correct orientation the rotations must be
+        // applied in the correct order which for this configuration is yaw, pitch, and then roll.
+        // For more see http://en.wikipedia.org/wiki/Conversion_between_quaternions_and_Euler_angles which has additional links.
+        yaw = atan2(2.0f * (q[1] * q[2] + q[0] * q[3]), q[0] * q[0] + q[1] * q[1] - q[2] * q[2] - q[3] * q[3]);
+        pitch = -asin(2.0f * (q[1] * q[3] - q[0] * q[2]));
+        roll = atan2(2.0f * (q[0] * q[1] + q[2] * q[3]), q[0] * q[0] - q[1] * q[1] - q[2] * q[2] + q[3] * q[3]);
+
+        pitch *= 180.0f / PI;
+        yaw *= 180.0f / PI;
+        roll *= 180.0f / PI;
+
+        LOGI("Yaw, Pitch, Roll: ");
+        LOGI("%f %d", yaw, 2);
+        LOGI(", ");
+        LOGI("%f %d", pitch, 2);
+        LOGI(", ");
+        LOGI("%f %d", roll, 2);
+        //    LOGI("average rate = "); LOGI(1.0f/deltat, 2); LOGIln(" Hz");
+        LOGI(" x\t  y\t  z  \n");
+        LOGI("%d \t", (int)(1000 * ax));
+        LOGI("%d \t", (int)(1000 * ay));
+        LOGI("%d \t mg\n", (int)(1000 * az));
+
+        LOGI("%d \t", (int)(gyrox));
+        LOGI("%d \t", (int)(gyroy));
+        LOGI("%d o/s", (int)(gyroz));
+
+        LOGI("%d \t", (int)(yaw));
+        LOGI("%d \t", (int)(pitch));
+        LOGI("%d ypr \n", (int)(roll));
+
+        LOGI("rt: ");
+        LOGI("%f %d Hz\n", 1.0f / deltat, 2);
+
+        blinkOn = ~blinkOn;
+        count = millis();
+    }
 }
 
 #endif
